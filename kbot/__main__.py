@@ -18,7 +18,7 @@ from .config import load_config
 
 async def _discover(cfg):
     from .kalshi import KalshiAuth, KalshiREST
-    rest = KalshiREST(cfg.kalshi, KalshiAuth(cfg.kalshi))
+    rest = KalshiREST(cfg.kalshi, KalshiAuth(cfg.kalshi, load=False))   # public data, no key needed
     for s in await rest.series("Crypto"):
         if "BTC" in s.get("ticker", "").upper() or "bitcoin" in s.get("title", "").lower():
             mk = await rest.open_markets(s["ticker"])
@@ -32,8 +32,12 @@ async def _run(cfg, live: bool):
     from .kalshi import KalshiAuth, KalshiREST, KalshiWS, parse_market
     from .tracker import Tracker
 
+    from .kalshi import KeyFileError
     log = logging.getLogger("kbot")
-    auth = KalshiAuth(cfg.kalshi)
+    try:
+        auth = KalshiAuth(cfg.kalshi)
+    except KeyFileError as e:
+        sys.exit(str(e))
     if not auth.ok:
         sys.exit("Kalshi API key required (the orderbook websocket is authenticated even for paper mode). "
                  "Set KALSHI_KEY_ID and KALSHI_PRIVATE_KEY_PATH.")

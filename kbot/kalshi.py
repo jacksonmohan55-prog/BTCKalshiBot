@@ -19,14 +19,40 @@ from .models import Market, parse_iso
 log = logging.getLogger("kbot.kalshi")
 
 
+class KeyFileError(Exception):
+    pass
+
+
 class KalshiAuth:
-    def __init__(self, cfg: KalshiCfg):
-        self.key_id = cfg.key_id or os.environ.get("KALSHI_KEY_ID", "")
-        path = cfg.private_key_path or os.environ.get("KALSHI_PRIVATE_KEY_PATH", "")
+    def __init__(self, cfg: KalshiCfg, load: bool = True):
+        self.key_id = (cfg.key_id or os.environ.get("KALSHI_KEY_ID", "")).strip()
+        path = (cfg.private_key_path or os.environ.get("KALSHI_PRIVATE_KEY_PATH", "")).strip().strip('"\'')
         self.key = None
-        if self.key_id and path:
-            with open(os.path.expanduser(path), "rb") as fh:
-                self.key = serialization.load_pem_private_key(fh.read(), password=None)
+        if load and self.key_id and path:
+            self.key = self._load(path)
+
+    @staticmethod
+    def _load(path: str):
+        full = os.path.abspath(os.path.expanduser(path))
+        if not os.path.isfile(full):
+            folder = os.path.dirname(full)
+            hint = ""
+            if os.path.isdir(folder):
+                near = [f for f in os.listdir(folder)
+                        if f.lower().endswith((".pem", ".key", ".txt")) or "kalshi" in f.lower()]
+                if near:
+                    hint = "\n  Possible key files in that folder: " + ", ".join(sorted(near)[:10])
+            else:
+                hint = f"\n  The folder {folder} does not exist either."
+            raise KeyFileError(f"Kalshi private key file not found:\n  {full}{hint}\n"
+                               "  Fix private_key_path in config.toml (use / not \\) or KALSHI_PRIVATE_KEY_PATH.")
+        with open(full, "rb") as fh:
+            data = fh.read()
+        try:
+            return serialization.load_pem_private_key(data, password=None)
+        except ValueError as e:
+            raise KeyFileError(f"{full} is not a valid PEM private key ({e}). It should start with "
+                               "'-----BEGIN RSA PRIVATE KEY-----' or '-----BEGIN PRIVATE KEY-----'.") from e
 
     @property
     def ok(self) -> bool:
