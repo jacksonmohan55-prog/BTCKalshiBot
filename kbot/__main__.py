@@ -29,7 +29,7 @@ async def _run(cfg, live: bool):
     from . import btc_feed
     from .broker import LiveBroker, PaperBroker
     from .engine import Engine, RealClock
-    from .kalshi import KalshiAuth, KalshiREST, KalshiWS, parse_market
+    from .kalshi import KalshiAuth, KalshiPoller, KalshiREST, KalshiWS, parse_market
     from .tracker import Tracker
 
     from .kalshi import KeyFileError
@@ -38,9 +38,8 @@ async def _run(cfg, live: bool):
         auth = KalshiAuth(cfg.kalshi)
     except KeyFileError as e:
         sys.exit(str(e))
-    if not auth.ok:
-        sys.exit("Kalshi API key required (the orderbook websocket is authenticated even for paper mode). "
-                 "Set KALSHI_KEY_ID and KALSHI_PRIVATE_KEY_PATH.")
+    if not auth.ok and live:
+        sys.exit("Live trading needs a Kalshi API key: set key_id / private_key_path in config.toml.")
     rest = KalshiREST(cfg.kalshi, auth)
     clock = RealClock(asyncio.get_running_loop())
     tracker = Tracker(cfg.db_path, run="live" if live else "paper")
@@ -67,7 +66,16 @@ async def _run(cfg, live: bool):
         asyncio.get_running_loop().create_task(poll())
     engine.resolver = resolver
 
-    ws = KalshiWS(cfg.kalshi, auth, engine)
+    if auth.ok:
+        ws = KalshiWS(cfg.kalshi, auth, engine)
+        book_task = ws.run()
+    else:
+        ws = None
+        poller = KalshiPoller(cfg.kalshi, rest, engine, cfg.trade.min_seconds_to_close)
+        book_task = poller.run()
+        log.warning("No Kalshi API key: paper mode on %s public orderbooks, polled every %.1fs "
+                    "(%d markets per horizon). Add a key for the faster websocket feed.",
+                    cfg.kalshi.env, cfg.kalshi.poll_s, cfg.kalshi.poll_markets_per_series)
 
     async def refresh_markets():
         warned = set()
@@ -88,15 +96,34 @@ async def _run(cfg, live: bool):
                     if m:
                         engine.upsert_market(m)
                         tickers.add(m.ticker)
-                await ws.ensure(tickers)
+                if ws:
+                    await ws.ensure(tickers)
             await asyncio.sleep(cfg.kalshi.market_refresh_s)
+
+    async def status():
+        from .pricing import implied_sigma
+        while True:
+            await asyncio.sleep(60)
+            now = clock.now()
+            fresh = [(t, b) for t, b in engine.books.items() if now - b.updated < 10]
+            parts = []
+            for t, b in sorted(fresh):
+                m = engine.markets.get(t)
+                yb, ya = b.best_bid("yes"), b.best_ask("yes")
+                iv = None
+                if m and engine.price and yb is not None and ya is not None and 3 < (yb + ya) / 2 < 97:
+                    iv = implied_sigma(m, engine.price, now, (yb + ya) / 200)
+                parts.append(f"{t} yes {yb}/{ya}" + (f" iv {iv * 1e4:.2f}" if iv else ""))
+            px = f"{engine.price:,.2f}" if engine.price else "n/a"
+            log.info("STATUS btc=%s realized vol=%.2fbps/s live books=%d | %s", px, engine.detector.sigma_1s * 1e4,
+                     len(fresh), " ; ".join(parts) or "none")
 
     async def periodic_report():
         while True:
             await asyncio.sleep(300)
             log.info("\n%s", tracker.report(cfg.markout_offsets_s, cfg.trade.min_edge_cents))
 
-    tasks = [ws.run(), refresh_markets(), periodic_report()]
+    tasks = [book_task, refresh_markets(), periodic_report(), status()]
     if cfg.feeds.coinbase:
         tasks.append(btc_feed.coinbase(engine))
     if cfg.feeds.kraken:

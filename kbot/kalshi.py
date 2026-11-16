@@ -80,6 +80,30 @@ def _cents(d: dict, key: str) -> int | None:
     return None
 
 
+def _px(v, dollars: bool) -> float:
+    """Price in cents, keeping sub-cent ticks (Kalshi quotes in $0.001 on some markets)."""
+    return round(float(v) * (100 if dollars else 1), 4)
+
+
+def parse_levels(body: dict, side: str) -> list[tuple[float, float]]:
+    """Orderbook levels for `side` from any of Kalshi's formats:
+    yes: [[42, 10]] (cents) | yes_dollars: [["0.4200", "10.00"]] | *_fp variants."""
+    for key in (side, side + "_fp", side + "_dollars", side + "_dollars_fp"):
+        if body.get(key) is not None:
+            dollars = "dollars" in key
+            return [(_px(p, dollars), float(q)) for p, q in body[key]]
+    return []
+
+
+def parse_delta(body: dict) -> tuple[float, float]:
+    if body.get("price") is not None:
+        price = _px(body["price"], False)
+    else:
+        price = _px(body["price_dollars"], True)
+    delta = body.get("delta", body.get("delta_fp"))
+    return price, float(delta)
+
+
 def _ts(s: str | None) -> float | None:
     if not s:
         return None
@@ -135,14 +159,21 @@ class KalshiREST:
     async def market(self, ticker: str) -> dict:
         return (await self.call("GET", f"/markets/{ticker}")).get("market", {})
 
+    async def orderbook(self, ticker: str) -> dict:
+        r = await self.call("GET", f"/markets/{ticker}/orderbook")
+        return r.get("orderbook_fp") or r.get("orderbook") or {}
+
     async def balance(self) -> dict:
         return await self.call("GET", "/portfolio/balance", signed=True)
 
     async def create_order(self, order) -> dict:
         body = {"ticker": order.ticker, "client_order_id": order.client_id, "action": "buy",
                 "side": order.side, "count": order.qty, "type": "limit",
-                "time_in_force": "immediate_or_cancel",
-                ("yes_price" if order.side == "yes" else "no_price"): order.limit_cents}
+                "time_in_force": "immediate_or_cancel"}
+        if float(order.limit_cents).is_integer():
+            body[order.side + "_price"] = int(order.limit_cents)
+        else:
+            body[order.side + "_price_dollars"] = f"{order.limit_cents / 100:.4f}"
         return await self.call("POST", "/portfolio/orders", signed=True, json=body)
 
 
@@ -205,15 +236,46 @@ class KalshiWS:
                 return "resync"
             self._seq[sid] = seq
         if typ == "orderbook_snapshot":
-            def lv(side):
-                if body.get(side) is not None:
-                    return [(int(round(float(p))), int(float(q))) for p, q in body[side]]
-                return [(int(round(float(p) * 100)), int(float(q))) for p, q in body.get(side + "_dollars") or []]
-            self.engine.book_snapshot(body["market_ticker"], lv("yes"), lv("no"))
+            self.engine.book_snapshot(body["market_ticker"], parse_levels(body, "yes"), parse_levels(body, "no"))
         elif typ == "orderbook_delta":
-            price = body.get("price")
-            price = int(round(float(price))) if price is not None else int(round(float(body["price_dollars"]) * 100))
-            delta = body.get("delta", body.get("delta_fp"))
-            self.engine.book_delta(body["market_ticker"], body["side"], price, int(float(delta)))
+            price, delta = parse_delta(body)
+            self.engine.book_delta(body["market_ticker"], body["side"], price, delta)
         elif typ == "error":
             log.error("kalshi ws error msg: %s", body)
+
+
+class KalshiPoller:
+    """No-API-key fallback: polls public orderbooks over REST for the markets that matter
+    (soonest expiry, strikes nearest the current BTC price). Slower than the websocket."""
+
+    def __init__(self, cfg: KalshiCfg, rest: KalshiREST, engine, min_ttc: float):
+        self.cfg, self.rest, self.engine, self.min_ttc = cfg, rest, engine, min_ttc
+
+    def pick(self) -> list[str]:
+        now, px = self.engine.clock.now(), self.engine.price
+        out = []
+        by_h: dict[str, list[Market]] = {}
+        for m in self.engine.markets.values():
+            if m.result is None and m.close_ts - now >= self.min_ttc:
+                by_h.setdefault(m.horizon, []).append(m)
+        for ms in by_h.values():
+            first = min(m.close_ts for m in ms)
+            ms = [m for m in ms if m.close_ts == first]
+            if px is not None:
+                ms.sort(key=lambda m: abs((m.floor_strike or m.cap_strike or px) - px))
+            out += [m.ticker for m in ms[:self.cfg.poll_markets_per_series]]
+        return out
+
+    async def _one(self, ticker: str):
+        try:
+            ob = await self.rest.orderbook(ticker)
+        except Exception as e:  # noqa: BLE001
+            log.debug("orderbook %s: %s", ticker, e)
+            return
+        self.engine.book_snapshot(ticker, parse_levels(ob, "yes"), parse_levels(ob, "no"))
+
+    async def run(self):
+        while True:
+            t0 = time.time()
+            await asyncio.gather(*(self._one(t) for t in self.pick()))
+            await asyncio.sleep(max(0.0, self.cfg.poll_s - (time.time() - t0)))

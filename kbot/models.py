@@ -31,8 +31,8 @@ class Market:
 @dataclass
 class OrderBook:
     """Kalshi books only carry bids: YES bids and NO bids. A YES ask at p is a NO bid at 100-p."""
-    yes_bids: dict[int, int] = field(default_factory=dict)   # price cents -> contracts
-    no_bids: dict[int, int] = field(default_factory=dict)
+    yes_bids: dict[float, float] = field(default_factory=dict)   # price cents -> contracts
+    no_bids: dict[float, float] = field(default_factory=dict)
     updated: float = 0.0                                      # local time of last change
     ask_changed: dict[str, float] = field(default_factory=lambda: {"yes": 0.0, "no": 0.0})
 
@@ -84,5 +84,5 @@ class Signal:
 class Position:
     ticker: str
     side: str
-    qty: int = 0
+    qty: float = 0
     cost_cents: float = 0.0                # includes fees

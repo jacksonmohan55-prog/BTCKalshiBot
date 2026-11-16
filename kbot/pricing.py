@@ -37,6 +37,25 @@ def fair_yes(m: Market, spot: float, sigma_1s: float, now: float) -> float | Non
     return None
 
 
+def implied_sigma(m: Market, spot: float, now: float, target: float,
+                  lo: float = 1e-6, hi: float = 5e-3) -> float | None:
+    """Per-second volatility at which our model reproduces `target` (a Kalshi mid, 0-1) at `spot`.
+    Bisection; None if the price can't be matched (e.g. too close to 0/1 or not monotone)."""
+    f_lo, f_hi = fair_yes(m, spot, lo, now), fair_yes(m, spot, hi, now)
+    if f_lo is None or f_hi is None:
+        return None
+    if (f_lo - target) * (f_hi - target) > 0:
+        return None
+    for _ in range(60):
+        mid = (lo * hi) ** 0.5
+        f = fair_yes(m, spot, mid, now)
+        if (f - target) * (f_lo - target) > 0:
+            lo, f_lo = mid, f
+        else:
+            hi = mid
+    return (lo * hi) ** 0.5
+
+
 def settle_yes(m: Market, settle_price: float) -> bool:
     st = m.strike_type
     if st == "greater":

@@ -30,6 +30,13 @@ class Pricing(unittest.TestCase):
         m2 = Market("Y", "S", "h", close_ts=300, strike_type="less", cap_strike=100)
         self.assertAlmostEqual(fair_yes(m2, 100, 1e-4, 0), 0.5)
 
+    def test_implied_sigma_round_trip(self):
+        from kbot.pricing import implied_sigma
+        m = Market("X", "S", "h", close_ts=1000, strike_type="greater", floor_strike=65250)
+        target = fair_yes(m, 65276, 1.7e-4, 0)
+        self.assertAlmostEqual(implied_sigma(m, 65276, 0, target), 1.7e-4, delta=1e-7)
+        self.assertIsNone(implied_sigma(m, 65276, 0, 0.2))   # can't be below 50% when spot > strike
+
     def test_fee(self):
         # 0.07 * 10 * 0.5 * 0.5 = $0.175 -> 18c
         self.assertEqual(taker_fee_cents(50, 10), 18)
@@ -104,6 +111,35 @@ class KalshiBits(unittest.TestCase):
         ws._handle({"type": "orderbook_snapshot", "sid": 2, "seq": 1,
                     "msg": {"market_ticker": "B", "yes_dollars": [["0.31", 4]], "no_dollars": []}})
         self.assertEqual(eng.books["B"].best_bid("yes"), 31)
+
+
+class KalshiFormats(unittest.TestCase):
+    def test_fixed_point_dollar_levels(self):
+        from kbot.kalshi import parse_levels, parse_delta
+        ob = {"yes_dollars": [["0.0010", "1803365.63"], ["0.8400", "8616.74"]],
+              "no_dollars": [["0.1400", "10583.62"]]}
+        self.assertEqual(parse_levels(ob, "yes")[0], (0.1, 1803365.63))
+        b = OrderBook()
+        for p, q in parse_levels(ob, "yes"):
+            b.set_level("yes", p, q, 1)
+        for p, q in parse_levels(ob, "no"):
+            b.set_level("no", p, q, 1)
+        self.assertAlmostEqual(b.best_ask("yes"), 86.0)
+        self.assertAlmostEqual(b.best_ask("no"), 16.0)
+        self.assertEqual(parse_delta({"price_dollars": "0.4150", "delta_fp": "-2.50"}), (41.5, -2.5))
+
+    def test_poller_picks_soonest_nearest_strikes(self):
+        from kbot.kalshi import KalshiPoller
+        clock = SimClock(0)
+        cfg = Config()
+        cfg.kalshi.poll_markets_per_series = 2
+        eng = Engine(cfg, clock, Tracker(":memory:"))
+        eng.price = 65000
+        for k in (60000, 64900, 65050, 70000):
+            eng.markets[f"H1-{k}"] = Market(f"H1-{k}", "KXBTCD", "60m", close_ts=3600, floor_strike=k)
+        eng.markets["H2-65000"] = Market("H2-65000", "KXBTCD", "60m", close_ts=7200, floor_strike=65000)
+        picked = KalshiPoller(cfg.kalshi, None, eng, 30).pick()
+        self.assertEqual(sorted(picked), ["H1-64900", "H1-65050"])
 
 
 class Feeds(unittest.TestCase):

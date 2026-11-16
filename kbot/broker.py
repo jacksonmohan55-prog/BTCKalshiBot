@@ -18,11 +18,11 @@ class Order:
     ticker: str
     side: str          # "yes" | "no"
     qty: int
-    limit_cents: int
+    limit_cents: float
     client_id: str = ""
 
 
-FillCb = Callable[[Order, int, float, float, str], None]   # order, filled qty, avg price, fee, order_id
+FillCb = Callable[[Order, float, float, float, str], None]   # order, filled qty, avg price, fee, order_id
 
 
 class PaperBroker:
@@ -79,10 +79,10 @@ class LiveBroker:
             log.error("order failed %s: %s", order, e)
             return on_fill(order, 0, 0.0, 0.0, "")
         o = resp.get("order", resp)
-        filled = o.get("fill_count", o.get("taker_fill_count"))
+        filled = o.get("fill_count", o.get("fill_count_fp", o.get("taker_fill_count")))
         if filled is None:
-            filled = order.qty - int(o.get("remaining_count", order.qty))
-        filled = int(float(filled))
+            filled = order.qty - float(o.get("remaining_count", order.qty))
+        filled = float(filled)
         cost = o.get("taker_fill_cost")
         if cost is None and o.get("taker_fill_cost_dollars") is not None:
             cost = float(o["taker_fill_cost_dollars"]) * 100

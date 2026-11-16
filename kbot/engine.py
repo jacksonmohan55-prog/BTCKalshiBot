@@ -10,7 +10,7 @@ from typing import Callable
 from .broker import Order
 from .config import Config
 from .models import Market, OrderBook, Position, Signal
-from .pricing import fair_yes, settle_yes, taker_fee_cents
+from .pricing import fair_yes, implied_sigma, settle_yes, taker_fee_cents
 from .signals import Detector
 from .tracker import Tracker
 
@@ -118,8 +118,21 @@ class Engine:
                 book = self.books.get(m.ticker)
                 if not book or now - book.updated > self.cfg.trade.max_book_age_s:
                     continue
-                f_now = fair_yes(m, sig.price, sig.sigma_1s, now)
-                f_before = fair_yes(m, sig.price_before, sig.sigma_1s, now)
+                # Price with the volatility Kalshi's own quote implies at the pre-move BTC price,
+                # so the only disagreement left is the move Kalshi hasn't reacted to yet.
+                # Markets whose quote can't be matched by any volatility are skipped: there our
+                # model and Kalshi disagree for reasons other than the move (e.g. index basis).
+                yb, ya = book.best_bid("yes"), book.best_ask("yes")
+                if yb is None or ya is None or ya - yb > self.cfg.trade.max_spread_cents:
+                    continue
+                mid = (yb + ya) / 200
+                if not 0.03 < mid < 0.97:
+                    continue
+                sigma = implied_sigma(m, sig.price_before, now, mid)
+                if sigma is None:
+                    continue
+                f_now = fair_yes(m, sig.price, sigma, now)
+                f_before = fair_yes(m, sig.price_before, sigma, now)
                 if f_now is None or f_before is None or f_now == f_before:
                     continue
                 side = "yes" if f_now > f_before else "no"
@@ -221,6 +234,10 @@ class Engine:
             self.books.pop(ticker, None)
             self.markets.pop(ticker, None)
 
+        if ticker not in self.positions:          # nothing to settle; don't spend API calls on it
+            self.books.pop(ticker, None)
+            self.markets.pop(ticker, None)
+            return
         if self.resolver:
             self.resolver(m, done)
         else:

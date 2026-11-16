@@ -3,3 +3,4 @@ __pycache__/
 *.sqlite
 *.pem
 config.toml
+*.log

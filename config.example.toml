@@ -11,7 +11,8 @@ markout_offsets_s = [1, 3, 5, 10, 30, 60]
 "60m" = "KXBTCD"
 
 [kalshi]
-env = "demo"                 # "demo" (fake money, demo-api.kalshi.co) or "prod"
+env = "demo"                 # "demo" (fake money) or "prod". Without a key, paper mode reads public
+                             # orderbooks only (no trading possible), so "prod" gives realistic data.
 key_id = ""                  # or env KALSHI_KEY_ID
 private_key_path = ""        # or env KALSHI_PRIVATE_KEY_PATH
 

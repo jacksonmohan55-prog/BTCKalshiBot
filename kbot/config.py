@@ -16,6 +16,8 @@ class KalshiCfg:
     key_id: str = ""                       # API key id (or env KALSHI_KEY_ID)
     private_key_path: str = ""             # RSA private key PEM (or env KALSHI_PRIVATE_KEY_PATH)
     market_refresh_s: float = 15.0         # how often to re-list open markets (they roll over)
+    poll_s: float = 1.0                    # no-key mode: seconds between orderbook polls
+    poll_markets_per_series: int = 3       # no-key mode: markets polled per horizon (nearest the money)
 
     @property
     def rest_base(self) -> str:
@@ -60,6 +62,7 @@ class TradeCfg:
     min_seconds_to_close: float = 30.0
     max_book_age_s: float = 120.0          # ignore markets whose book we haven't heard about recently
     market_cooldown_s: float = 20.0        # min gap between orders in the same market
+    max_spread_cents: float = 10.0         # wider Kalshi spreads aren't trusted for implied volatility
     fee_rate: float = 0.07                 # Kalshi taker fee = ceil(rate * C * P * (1-P))
     paper_latency_ms: float = 150.0        # simulated order round-trip in paper mode
 
@@ -67,6 +70,7 @@ class TradeCfg:
 @dataclass
 class Config:
     # horizon label -> Kalshi series ticker. Run `python -m kbot discover` to see real series.
+    # As of Nov 2026 Kalshi's shortest BTC markets are 15-minute (KXBTC15M) and hourly (KXBTCD).
     horizons: dict[str, str] = field(default_factory=lambda: {
         "15m": "KXBTC15M",
         "60m": "KXBTCD",
