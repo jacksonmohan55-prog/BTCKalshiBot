@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -35,6 +36,25 @@ class OrderBook:
     no_bids: dict[float, float] = field(default_factory=dict)
     updated: float = 0.0                                      # local time of last change
     ask_changed: dict[str, float] = field(default_factory=lambda: {"yes": 0.0, "no": 0.0})
+    mid_hist: deque = field(default_factory=lambda: deque(maxlen=600))   # (ts, yes mid 0-1) on change
+
+    def mid(self) -> float | None:
+        b, a = self.best_bid("yes"), self.best_ask("yes")
+        return None if b is None or a is None else (b + a) / 200
+
+    def note_mid(self, now: float):
+        m = self.mid()
+        if m is not None and (not self.mid_hist or self.mid_hist[-1][1] != m):
+            self.mid_hist.append((now, m))
+
+    def mid_at(self, ts: float) -> float | None:
+        """YES mid as it stood at time ts (None if we have no quote from before then)."""
+        out = None
+        for t, m in self.mid_hist:
+            if t > ts:
+                break
+            out = m
+        return out
 
     def _bids(self, side: str) -> dict[int, int]:
         return self.yes_bids if side == "yes" else self.no_bids
@@ -65,6 +85,7 @@ class OrderBook:
             self.ask_changed["yes"] = now
         if after[1] != before[1]:
             self.ask_changed["no"] = now
+        self.note_mid(now)
 
 
 @dataclass

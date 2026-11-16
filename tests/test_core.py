@@ -142,6 +142,39 @@ class KalshiFormats(unittest.TestCase):
         self.assertEqual(sorted(picked), ["H1-64900", "H1-65050"])
 
 
+class SignalPricing(unittest.TestCase):
+    def test_at_the_money_small_move_is_not_a_sure_thing(self):
+        """Replays the live 21:49 signal: +2.1 bps, ATM 15m market at 46/47. The old implied-vol
+        pricing called YES 98.5c; fair must stay near Kalshi's pre-move mid plus a small delta."""
+        from kbot.models import Signal
+        clock = SimClock(1000)
+        eng = Engine(Config(), clock, Tracker(":memory:"))
+        m = Market("M15", "KXBTC15M", "15m", close_ts=1000 + 640, strike_type="greater_or_equal",
+                   floor_strike=65265.0)
+        eng.upsert_market(m)
+        eng.book_snapshot("M15", [(46.0, 500)], [(53.0, 500)])
+        clock.advance(1010)
+        eng.handle_signal(Signal(ts=1010, direction=1, reason="volume", price=65278.79,
+                                 price_before=65265.1, ret_bps=2.1, z_ret=2.8, z_vol=5.0, sigma_1s=0.3e-4))
+        fair, = eng.tracker.db.execute("SELECT fair FROM observations WHERE horizon='15m'").fetchone()
+        self.assertGreater(fair, 0.465)
+        self.assertLess(fair, 0.60)
+
+    def test_already_repriced_market_has_no_edge(self):
+        from kbot.models import Signal
+        clock = SimClock(1000)
+        eng = Engine(Config(), clock, Tracker(":memory:"))
+        eng.upsert_market(Market("M", "S", "15m", close_ts=1600, floor_strike=65000.0))
+        eng.book_snapshot("M", [(49.0, 500)], [(50.0, 500)])          # 49/50 before the move
+        clock.advance(1008)
+        eng.book_snapshot("M", [(84.0, 500)], [(15.0, 500)])          # Kalshi already moved to 84/85
+        clock.advance(1010)
+        eng.handle_signal(Signal(ts=1010, direction=1, reason="jump", price=65100, price_before=65000,
+                                 ret_bps=15.4, z_ret=6, z_vol=1, sigma_1s=0.6e-4))
+        edge, = eng.tracker.db.execute("SELECT edge FROM observations").fetchone()
+        self.assertLess(edge, 3.0)
+
+
 class Feeds(unittest.TestCase):
     def test_parse_iso_any_fraction(self):
         from kbot.models import parse_iso

@@ -47,7 +47,8 @@ class SignalCfg:
     vol_z: float = 5.0                     # volume-spike trigger (z-score of lookback volume)
     vol_confirm_ret_z: float = 2.0         # a volume spike also needs a move of this z in the same direction
     cooldown_s: float = 15.0               # min gap between signals in the same direction
-    vol_floor_bps: float = 0.3             # floor on the 1-second volatility used for pricing (bps)
+    vol_floor_bps: float = 0.3             # floor on the realized 1-second volatility estimate (bps)
+    min_pricing_vol_bps: float = 0.5       # floor on the volatility used to price a move (bps per sqrt s)
 
 
 @dataclass

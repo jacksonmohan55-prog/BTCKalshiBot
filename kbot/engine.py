@@ -3,6 +3,7 @@ stale-quote edge -> risk checks -> order. Also schedules post-signal quote snaps
 from __future__ import annotations
 
 import logging
+import statistics
 import time
 from collections import deque
 from typing import Callable
@@ -85,6 +86,7 @@ class Engine:
             b.ask_changed["yes"] = now
         if b.best_ask("no") != before[1]:
             b.ask_changed["no"] = now
+        b.note_mid(now)
 
     def book_delta(self, ticker: str, side: str, price: int, delta: int):
         b = self.books.setdefault(ticker, OrderBook())
@@ -108,7 +110,8 @@ class Engine:
         onset = sig.ts - self.cfg.signal.lookback_s
         now = self.clock.now()
         for horizon in self.cfg.horizons:
-            best = None
+            # 1) quotable markets, with Kalshi's mid as it stood when the move began
+            cands = []
             for m in self.markets.values():
                 if m.horizon != horizon or m.result is not None:
                     continue
@@ -118,28 +121,36 @@ class Engine:
                 book = self.books.get(m.ticker)
                 if not book or now - book.updated > self.cfg.trade.max_book_age_s:
                     continue
-                # Price with the volatility Kalshi's own quote implies at the pre-move BTC price,
-                # so the only disagreement left is the move Kalshi hasn't reacted to yet.
-                # Markets whose quote can't be matched by any volatility are skipped: there our
-                # model and Kalshi disagree for reasons other than the move (e.g. index basis).
                 yb, ya = book.best_bid("yes"), book.best_ask("yes")
                 if yb is None or ya is None or ya - yb > self.cfg.trade.max_spread_cents:
                     continue
-                mid = (yb + ya) / 200
-                if not 0.03 < mid < 0.97:
+                mid0 = book.mid_at(onset)
+                if mid0 is None or not 0.03 < mid0 < 0.97:
                     continue
-                sigma = implied_sigma(m, sig.price_before, now, mid)
-                if sigma is None:
-                    continue
+                cands.append((m, book, mid0, ttc))
+            # 2) one volatility per horizon: median implied by markets that are NOT at the money
+            #    (at the money, implied vol is dominated by our-feed vs settlement-index basis)
+            ivs = []
+            for m, book, mid0, ttc in cands:
+                if 0.10 <= mid0 <= 0.40 or 0.60 <= mid0 <= 0.90:
+                    iv = implied_sigma(m, sig.price_before, now, mid0)
+                    if iv is not None:
+                        ivs.append(iv)
+            floor = self.cfg.signal.min_pricing_vol_bps / 1e4
+            sigma = max(statistics.median(ivs) if ivs else sig.sigma_1s, floor)
+            # 3) fair = Kalshi's pre-move mid + the change the move should cause
+            best = None
+            for m, book, mid0, ttc in cands:
                 f_now = fair_yes(m, sig.price, sigma, now)
                 f_before = fair_yes(m, sig.price_before, sigma, now)
                 if f_now is None or f_before is None or f_now == f_before:
                     continue
+                fair_y = min(max(mid0 + (f_now - f_before), 0.005), 0.995)
                 side = "yes" if f_now > f_before else "no"
                 ask = book.best_ask(side)
                 if ask is None or ask >= 100:
                     continue
-                fair = f_now if side == "yes" else 1 - f_now
+                fair = fair_y if side == "yes" else 1 - fair_y
                 edge = fair * 100 - ask - taker_fee_cents(ask, 1, self.cfg.trade.fee_rate)
                 stale = book.ask_changed[side] < onset
                 if best is None or edge > best[1]:
