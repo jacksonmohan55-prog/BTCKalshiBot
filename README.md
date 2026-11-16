@@ -55,6 +55,19 @@ python -m kbot sim --hours 6     # offline simulation, no network or keys needed
 KBOT_CONFIRM_LIVE=yes python -m kbot run --live   # real orders
 ```
 
+## Running for days
+
+`scripts/run_forever.sh` (Mac/Linux) and `scripts/run_forever.bat` (Windows) start paper mode, log to
+`kbot.log`, and restart it if it ever exits. Results accumulate in `kbot.sqlite` across restarts.
+
+- **Your own computer:** turn sleep off while it runs (Windows: Settings → System → Power → Sleep → Never;
+  Mac: run it as `caffeinate -i ./scripts/run_forever.sh`). Check in with `python -m kbot report`.
+- **A Linux server (always on):** use `scripts/kbot.service` with systemd; instructions are in the file.
+  A server in the US East region is close to Kalshi and Coinbase.
+
+With an API key the bot uses Kalshi's websocket feed. If that feed sends no orderbook data for 60 s
+(for example because the key is rejected), it falls back to public REST polling and logs an ERROR line.
+
 ## Reading the scoreboard
 
 | column | meaning |

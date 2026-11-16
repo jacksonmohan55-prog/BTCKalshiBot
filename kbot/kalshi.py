@@ -187,6 +187,7 @@ class KalshiWS:
         self._ws = None
         self._msg_id = 0
         self._seq: dict[int, int] = {}
+        self.last_book_msg = 0.0          # time.time() of the last orderbook snapshot/delta
 
     async def ensure(self, tickers: set[str]):
         self.wanted |= tickers
@@ -221,7 +222,12 @@ class KalshiWS:
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
-                log.warning("kalshi ws error: %s", e)
+                if "401" in str(e):
+                    log.warning("kalshi ws: Kalshi rejected the API key (HTTP 401). Check that key_id matches "
+                                "the .pem file and that env (%s) matches where the key was made "
+                                "(demo.kalshi.co vs kalshi.com).", self.cfg.env)
+                else:
+                    log.warning("kalshi ws error: %s", e)
             self._ws = None
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30)
@@ -235,6 +241,8 @@ class KalshiWS:
                 log.warning("kalshi seq gap on sid %s (%s->%s); resyncing", sid, prev, seq)
                 return "resync"
             self._seq[sid] = seq
+        if typ in ("orderbook_snapshot", "orderbook_delta"):
+            self.last_book_msg = time.time()
         if typ == "orderbook_snapshot":
             self.engine.book_snapshot(body["market_ticker"], parse_levels(body, "yes"), parse_levels(body, "no"))
         elif typ == "orderbook_delta":
@@ -250,6 +258,7 @@ class KalshiPoller:
 
     def __init__(self, cfg: KalshiCfg, rest: KalshiREST, engine, min_ttc: float):
         self.cfg, self.rest, self.engine, self.min_ttc = cfg, rest, engine, min_ttc
+        self.enabled = True
 
     def pick(self) -> list[str]:
         now, px = self.engine.clock.now(), self.engine.price
@@ -277,5 +286,6 @@ class KalshiPoller:
     async def run(self):
         while True:
             t0 = time.time()
-            await asyncio.gather(*(self._one(t) for t in self.pick()))
+            if self.enabled:
+                await asyncio.gather(*(self._one(t) for t in self.pick()))
             await asyncio.sleep(max(0.0, self.cfg.poll_s - (time.time() - t0)))

@@ -66,12 +66,32 @@ async def _run(cfg, live: bool):
         asyncio.get_running_loop().create_task(poll())
     engine.resolver = resolver
 
+    poller = KalshiPoller(cfg.kalshi, rest, engine, cfg.trade.min_seconds_to_close)
     if auth.ok:
         ws = KalshiWS(cfg.kalshi, auth, engine)
-        book_task = ws.run()
+        poller.enabled = False
+
+        async def books_with_fallback():
+            """Websocket first; if it delivers no orderbook updates for 60 s, poll the public
+            REST orderbooks until it recovers."""
+            import time as _t
+            started = _t.time()
+
+            async def watchdog():
+                while True:
+                    await asyncio.sleep(15)
+                    healthy = _t.time() - max(ws.last_book_msg, started) < 60
+                    if not healthy and not poller.enabled:
+                        log.error("Kalshi websocket sent no orderbook data for 60s; falling back to "
+                                  "public REST polling (check the API key if this persists)")
+                    elif healthy and poller.enabled:
+                        log.warning("Kalshi websocket healthy again; stopping REST polling")
+                    poller.enabled = not healthy
+            await asyncio.gather(ws.run(), poller.run(), watchdog())
+        book_task = books_with_fallback()
+        log.info("Kalshi API key loaded: using the authenticated websocket feed (%s)", cfg.kalshi.env)
     else:
         ws = None
-        poller = KalshiPoller(cfg.kalshi, rest, engine, cfg.trade.min_seconds_to_close)
         book_task = poller.run()
         log.warning("No Kalshi API key: paper mode on %s public orderbooks, polled every %.1fs "
                     "(%d markets per horizon). Add a key for the faster websocket feed.",

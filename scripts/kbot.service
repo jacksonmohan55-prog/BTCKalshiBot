@@ -1,0 +1,17 @@
+# systemd service for a Linux server. Edit the two paths, then:
+#   sudo cp scripts/kbot.service /etc/systemd/system/kbot.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now kbot
+#   journalctl -u kbot -f        # watch the log
+[Unit]
+Description=kbot BTC/Kalshi paper trader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/home/ubuntu/BTCKalshiBot
+ExecStart=/home/ubuntu/BTCKalshiBot/.venv/bin/python -m kbot run
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
