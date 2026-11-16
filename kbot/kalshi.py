@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
 from urllib.parse import urlparse
 
 import requests
@@ -15,7 +14,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 from .config import KalshiCfg
-from .models import Market
+from .models import Market, parse_iso
 
 log = logging.getLogger("kbot.kalshi")
 
@@ -58,7 +57,7 @@ def _cents(d: dict, key: str) -> int | None:
 def _ts(s: str | None) -> float | None:
     if not s:
         return None
-    return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    return parse_iso(s)
 
 
 def parse_market(d: dict, series: str, horizon: str) -> Market | None:
@@ -147,12 +146,12 @@ class KalshiWS:
             self._subscribed |= set(chunk)
 
     async def run(self):
-        import websockets
+        from websockets.asyncio.client import connect
         backoff = 1
         while True:
             try:
                 path = urlparse(self.cfg.ws_url).path
-                async with websockets.connect(self.cfg.ws_url, additional_headers=self.auth.headers("GET", path),
+                async with connect(self.cfg.ws_url, additional_headers=self.auth.headers("GET", path),
                                               ping_interval=10, max_size=None) as ws:
                     self._ws, self._subscribed, self._seq = ws, set(), {}
                     log.info("kalshi ws connected")

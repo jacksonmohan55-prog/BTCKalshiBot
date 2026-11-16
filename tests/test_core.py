@@ -107,6 +107,13 @@ class KalshiBits(unittest.TestCase):
 
 
 class Feeds(unittest.TestCase):
+    def test_parse_iso_any_fraction(self):
+        from kbot.models import parse_iso
+        base = parse_iso("2026-11-16T12:00:00Z")
+        self.assertAlmostEqual(parse_iso("2026-11-16T12:00:00.5Z") - base, 0.5, places=5)
+        self.assertAlmostEqual(parse_iso("2026-11-16T12:00:00.123456789Z") - base, 0.123456, places=5)
+        self.assertAlmostEqual(parse_iso("2026-11-16T12:00:00.12+00:00") - base, 0.12, places=5)
+
     def test_coinbase_taker_side(self):
         (t, p, s, side), = parse_coinbase({"type": "match", "time": "2026-11-16T12:00:00.5Z",
                                            "price": "91000.1", "size": "0.2", "side": "sell"})

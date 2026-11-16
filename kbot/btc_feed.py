@@ -4,17 +4,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
+
+from .models import parse_iso
 
 log = logging.getLogger("kbot.feed")
 
 
 async def _stream(name: str, url: str, sub: dict, parse, engine):
-    import websockets
+    from websockets.asyncio.client import connect
     backoff = 1
     while True:
         try:
-            async with websockets.connect(url, ping_interval=10, max_size=None) as ws:
+            async with connect(url, ping_interval=10, max_size=None) as ws:
                 await ws.send(json.dumps(sub))
                 log.info("%s connected", name)
                 backoff = 1
@@ -29,20 +30,16 @@ async def _stream(name: str, url: str, sub: dict, parse, engine):
         backoff = min(backoff * 2, 30)
 
 
-def _iso(s: str) -> float:
-    return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
-
-
 def parse_coinbase(m: dict):
     if m.get("type") in ("match", "last_match"):
         # Coinbase `side` is the maker's side; a "sell" maker means the taker bought.
-        yield _iso(m["time"]), float(m["price"]), float(m["size"]), (1 if m["side"] == "sell" else -1)
+        yield parse_iso(m["time"]), float(m["price"]), float(m["size"]), (1 if m["side"] == "sell" else -1)
 
 
 def parse_kraken(m: dict):
     if m.get("channel") == "trade" and m.get("type") == "update":
         for t in m.get("data", []):
-            yield _iso(t["timestamp"]), float(t["price"]), float(t["qty"]), (1 if t["side"] == "buy" else -1)
+            yield parse_iso(t["timestamp"]), float(t["price"]), float(t["qty"]), (1 if t["side"] == "buy" else -1)
 
 
 def coinbase(engine):

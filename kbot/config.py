@@ -1,7 +1,12 @@
 """Configuration. Loaded from a TOML file (see config.example.toml); every field has a default."""
 from __future__ import annotations
 
-import tomllib
+import sys
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # Python 3.9 / 3.10
+    import tomli as tomllib
 from dataclasses import dataclass, field, fields, is_dataclass
 
 

@@ -1,6 +1,18 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
+
+_FRAC = re.compile(r"\.(\d+)")
+
+
+def parse_iso(s: str) -> float:
+    """ISO-8601 -> unix seconds. Works on Python 3.9+ (pre-3.11 fromisoformat needs exactly
+    3 or 6 fractional digits and no 'Z')."""
+    s = s.replace("Z", "+00:00")
+    s = _FRAC.sub(lambda m: "." + (m.group(1) + "000000")[:6], s, count=1)
+    return datetime.fromisoformat(s).timestamp()
 
 
 @dataclass

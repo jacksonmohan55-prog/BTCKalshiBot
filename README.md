@@ -26,6 +26,8 @@ can see which horizon reprices slowest and pays best.
 
 ## Setup
 
+Needs Python 3.9 or newer.
+
 ```bash
 pip install -r requirements.txt
 cp config.example.toml config.toml
