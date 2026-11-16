@@ -1,0 +1,37 @@
+# Copy to config.toml. Anything omitted uses the defaults in kbot/config.py.
+
+db_path = "kbot.sqlite"
+markout_offsets_s = [1, 3, 5, 10, 30, 60]
+
+# horizon label -> Kalshi series ticker. Confirm real tickers with:  python -m kbot discover
+# KXBTC15M = 15-minute BTC up/down, KXBTCD = hourly BTC above/below.
+# Add 1m / 5m series here if `discover` shows Kalshi lists them.
+[horizons]
+"15m" = "KXBTC15M"
+"60m" = "KXBTCD"
+
+[kalshi]
+env = "demo"                 # "demo" (fake money, demo-api.kalshi.co) or "prod"
+key_id = ""                  # or env KALSHI_KEY_ID
+private_key_path = ""        # or env KALSHI_PRIVATE_KEY_PATH
+
+[feeds]
+coinbase = true
+kraken = true
+
+[signal]
+lookback_s = 5.0
+ret_z = 4.0
+min_move_bps = 8.0
+vol_z = 5.0
+cooldown_s = 15.0
+
+[trade]
+require_edge = true          # false = bet on every signal regardless of price (not recommended)
+min_edge_cents = 3.0
+contracts_per_order = 10
+max_contracts_per_market = 50
+max_total_exposure_usd = 200.0
+daily_loss_limit_usd = 100.0
+min_seconds_to_close = 30.0
+paper_latency_ms = 150.0
