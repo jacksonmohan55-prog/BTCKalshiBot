@@ -13,7 +13,12 @@ import logging
 import os
 import sys
 
-from .config import load_config
+import warnings
+
+# macOS's built-in Python is linked against LibreSSL, which makes urllib3 print a harmless warning.
+warnings.filterwarnings("ignore", message=r"urllib3 v2 only supports OpenSSL")
+
+from .config import load_config  # noqa: E402
 
 
 async def _discover(cfg):
