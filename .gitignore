@@ -4,3 +4,5 @@ __pycache__/
 *.pem
 config.toml
 *.log
+status.json
+status.json.tmp

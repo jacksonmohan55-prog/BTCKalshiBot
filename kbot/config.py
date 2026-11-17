@@ -81,6 +81,7 @@ class Config:
     signal: SignalCfg = field(default_factory=SignalCfg)
     trade: TradeCfg = field(default_factory=TradeCfg)
     db_path: str = "kbot.sqlite"
+    status_path: str = "status.json"       # live snapshot the dashboard reads (rewritten every 2 s)
     markout_offsets_s: list[float] = field(default_factory=lambda: [1, 3, 5, 10, 30, 60])
 
 

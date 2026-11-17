@@ -2,3 +2,4 @@ websockets>=14
 requests>=2.31
 cryptography>=42
 tomli>=2.0; python_version < "3.11"
+rich>=13

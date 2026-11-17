@@ -68,6 +68,21 @@ KBOT_CONFIRM_LIVE=yes python -m kbot run --live   # real orders
 With an API key the bot uses Kalshi's websocket feed. If that feed sends no orderbook data for 60 s
 (for example because the key is rejected), it falls back to public REST polling and logs an ERROR line.
 
+## Live dashboard
+
+![dashboard](docs/dashboard.png)
+
+While the bot runs, open a second terminal window in the project folder and run:
+
+```bash
+python -m kbot dashboard
+```
+
+It shows the bot's state, BTC price and recent trend, the Kalshi markets being watched, the scoreboard, recent
+signals with what the bot decided, and paper bets. It refreshes every 2 s. Press Ctrl+C to close it; the bot
+keeps running. Make the window at least 130 characters wide for the two-column layout (it falls back to one
+column on narrower windows). `python -m kbot dashboard --once` prints a single frame.
+
 ## Reading the scoreboard
 
 | column | meaning |

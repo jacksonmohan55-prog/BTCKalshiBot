@@ -175,6 +175,39 @@ class SignalPricing(unittest.TestCase):
         self.assertLess(edge, 3.0)
 
 
+class Dashboard(unittest.TestCase):
+    def test_renders_with_and_without_data(self):
+        import io, json, os, tempfile, time
+        from rich.console import Console
+        from kbot.dashboard import render
+        from kbot.models import Signal
+        d = tempfile.mkdtemp()
+        cfg = Config()
+        cfg.db_path, cfg.status_path = os.path.join(d, "k.sqlite"), os.path.join(d, "status.json")
+        for width in (80, 140):                                   # nothing exists yet
+            Console(file=io.StringIO(), width=width, height=40).print(render(cfg, width, 40))
+        tr = Tracker(cfg.db_path)
+        sid = tr.record_signal(Signal(time.time(), 1, "jump", 65100, 65000, 15.4, 6, 1, 6e-5))
+        oid = tr.record_obs(sid, "15m", "KXBTC15M-X", "yes", 55, 54, 0.7, 12.0, 1, 500, None)
+        tr.record_trade(oid, time.time(), "KXBTC15M-X", "15m", "yes", 10, 55, 18, "paper", "p1")
+        now = time.time()
+        json.dump({"ts": now, "started": now - 300, "pid": 1, "mode": "paper", "env": "prod",
+                   "feed": "websocket", "btc": 65100.0, "sigma_bps": 0.6, "venues": {"coinbase": 1.0},
+                   "warmup_left": 0, "history": [[now - 600 + i * 5, 65000 + i] for i in range(120)],
+                   "books": [{"ticker": "KXBTC15M-X", "horizon": "15m", "close_ts": now + 500,
+                              "strike_type": "greater_or_equal", "floor": 65000.0, "cap": None,
+                              "yes_bid": 54.0, "yes_ask": 55.0, "iv_bps": 0.6}],
+                   "positions": [{"ticker": "KXBTC15M-X", "side": "yes", "qty": 10, "cost": 5.68}],
+                   "realized_today": 0, "horizons": cfg.horizons, "min_edge": 3}, open(cfg.status_path, "w"))
+        for width in (80, 140):
+            buf = io.StringIO()
+            Console(file=buf, width=width, height=40).print(render(cfg, width, 40))
+            out = buf.getvalue()
+            self.assertIn("RUNNING", out)
+            self.assertIn("65,100.00", out)
+            self.assertIn("BET +12.0", out)
+
+
 class Feeds(unittest.TestCase):
     def test_parse_iso_any_fraction(self):
         from kbot.models import parse_iso
