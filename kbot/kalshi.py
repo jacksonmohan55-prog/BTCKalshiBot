@@ -259,6 +259,10 @@ class KalshiPoller:
     def __init__(self, cfg: KalshiCfg, rest: KalshiREST, engine, min_ttc: float):
         self.cfg, self.rest, self.engine, self.min_ttc = cfg, rest, engine, min_ttc
         self.enabled = True
+        # With the websocket on, only poll markets whose book hasn't updated for this many seconds
+        # (0 = poll everything). Catches markets the websocket isn't delivering.
+        self.skip_fresh_s = 0.0
+        self._warned: dict[str, float] = {}
 
     def pick(self) -> list[str]:
         now, px = self.engine.clock.now(), self.engine.price
@@ -272,7 +276,16 @@ class KalshiPoller:
             ms = [m for m in ms if m.close_ts == first]
             if px is not None:
                 ms.sort(key=lambda m: abs((m.floor_strike or m.cap_strike or px) - px))
-            out += [m.ticker for m in ms[:self.cfg.poll_markets_per_series]]
+            for m in ms[:self.cfg.poll_markets_per_series]:
+                if self.skip_fresh_s:
+                    b = self.engine.books.get(m.ticker)
+                    if b is not None and now - b.updated < self.skip_fresh_s:
+                        continue
+                    if now - self._warned.get(m.horizon, -1e18) > 600:
+                        self._warned[m.horizon] = now
+                        log.warning("websocket isn't updating %s markets (e.g. %s); polling them over REST",
+                                    m.horizon, m.ticker)
+                out.append(m.ticker)
         return out
 
     async def _one(self, ticker: str):

@@ -76,7 +76,7 @@ async def _run(cfg, live: bool):
     poller = KalshiPoller(cfg.kalshi, rest, engine, cfg.trade.min_seconds_to_close)
     if auth.ok:
         ws = KalshiWS(cfg.kalshi, auth, engine)
-        poller.enabled = False
+        poller.skip_fresh_s = 5.0          # healthy websocket: poll only markets it isn't updating
 
         async def books_with_fallback():
             """Websocket first; if it delivers no orderbook updates for 60 s, poll the public
@@ -88,12 +88,12 @@ async def _run(cfg, live: bool):
                 while True:
                     await asyncio.sleep(15)
                     healthy = _t.time() - max(ws.last_book_msg, started) < 60
-                    if not healthy and not poller.enabled:
+                    if not healthy and poller.skip_fresh_s:
                         log.error("Kalshi websocket sent no orderbook data for 60s; falling back to "
                                   "public REST polling (check the API key if this persists)")
-                    elif healthy and poller.enabled:
-                        log.warning("Kalshi websocket healthy again; stopping REST polling")
-                    poller.enabled = not healthy
+                    elif healthy and not poller.skip_fresh_s:
+                        log.warning("Kalshi websocket healthy again")
+                    poller.skip_fresh_s = 5.0 if healthy else 0.0
             await asyncio.gather(ws.run(), poller.run(), watchdog())
         book_task = books_with_fallback()
         log.info("Kalshi API key loaded: using the authenticated websocket feed (%s)", cfg.kalshi.env)
@@ -174,7 +174,7 @@ async def _run(cfg, live: bool):
             data = {
                 "ts": now, "started": started, "pid": os.getpid(), "mode": "live" if live else "paper",
                 "env": cfg.kalshi.env,
-                "feed": "websocket" if ws is not None and not poller.enabled else "polling",
+                "feed": "websocket" if ws is not None and poller.skip_fresh_s else "polling",
                 "btc": engine.price, "sigma_bps": engine.detector.sigma_1s * 1e4,
                 "venues": {v: now - t for v, (t, _) in engine.venue_last.items()},
                 "warmup_left": max(0.0, cfg.signal.warmup_s - (now - started)),

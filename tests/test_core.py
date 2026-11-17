@@ -141,6 +141,21 @@ class KalshiFormats(unittest.TestCase):
         picked = KalshiPoller(cfg.kalshi, None, eng, 30).pick()
         self.assertEqual(sorted(picked), ["H1-64900", "H1-65050"])
 
+    def test_websocket_mode_polls_only_markets_it_isnt_updating(self):
+        from kbot.kalshi import KalshiPoller
+        clock = SimClock(100)
+        cfg = Config()
+        eng = Engine(cfg, clock, Tracker(":memory:"))
+        eng.price = 65000
+        eng.markets["Q"] = Market("Q", "KXBTC15M", "15m", close_ts=900, floor_strike=65000)
+        eng.markets["H"] = Market("H", "KXBTCD", "60m", close_ts=3600, floor_strike=65000)
+        eng.book_snapshot("Q", [(50.0, 10)], [(49.0, 10)])          # websocket keeps 15m fresh
+        p = KalshiPoller(cfg.kalshi, None, eng, 30)
+        p.skip_fresh_s = 5
+        self.assertEqual(p.pick(), ["H"])                           # 60m never arrived -> poll it
+        clock.advance(110)
+        self.assertEqual(sorted(p.pick()), ["H", "Q"])              # 15m went quiet too
+
 
 class SignalPricing(unittest.TestCase):
     def test_at_the_money_small_move_is_not_a_sure_thing(self):
