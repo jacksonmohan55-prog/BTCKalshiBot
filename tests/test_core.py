@@ -223,6 +223,31 @@ class Dashboard(unittest.TestCase):
             self.assertIn("BET +12.0", out)
 
 
+class Review(unittest.TestCase):
+    def test_grades_and_report(self):
+        import io, os, tempfile, time
+        from rich.console import Console
+        from kbot.models import Signal
+        from kbot.review import load_trades, review
+        d = tempfile.mkdtemp()
+        cfg = Config()
+        cfg.db_path = os.path.join(d, "k.sqlite")
+        tr = Tracker(cfg.db_path)
+        cases = [("good", "yes", 70.0), ("lucky", "yes", 40.0), ("unlucky", "no", 70.0), ("bad", "no", 40.0)]
+        for i, (_, result, bid30) in enumerate(cases):
+            sid = tr.record_signal(Signal(time.time() + i, 1, "jump", 65100, 65000, 15, 6, 1, 6e-5))
+            oid = tr.record_obs(sid, "15m", f"M{i}", "yes", 55, 54, 0.7, 12.0, 1, 500, None)
+            tr.record_snapshot(oid, 30, bid30, bid30 + 1)
+            tr.record_trade(oid, time.time() + i, f"M{i}", "15m", "yes", 10, 55, 18, "paper", "p")
+            tr.settle(f"M{i}", result)
+        self.assertEqual([t["verdict"] for t in load_trades(tr.db)], [c[0] for c in cases])
+        buf = io.StringIO()
+        csv_path = os.path.join(d, "t.csv")
+        review(cfg, csv_path=csv_path, console=Console(file=buf, width=100))
+        self.assertIn("Trade review", buf.getvalue())
+        self.assertEqual(sum(1 for _ in open(csv_path)), 5)
+
+
 class Feeds(unittest.TestCase):
     def test_parse_iso_any_fraction(self):
         from kbot.models import parse_iso

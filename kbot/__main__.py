@@ -4,6 +4,7 @@
   python -m kbot run [--live]             stream BTC + Kalshi; paper trades unless --live
   python -m kbot report                   per-horizon scoreboard from the database
   python -m kbot dashboard                live dashboard (open in a second window while the bot runs)
+  python -m kbot review [--all] [--csv f] grade past bets and show which kinds win or lose
   python -m kbot sim [--hours 2]          offline end-to-end simulation
 """
 from __future__ import annotations
@@ -206,7 +207,7 @@ async def _run(cfg, live: bool):
 
 def main():
     ap = argparse.ArgumentParser(prog="kbot")
-    ap.add_argument("cmd", choices=["discover", "run", "report", "sim", "dashboard"])
+    ap.add_argument("cmd", choices=["discover", "run", "report", "sim", "dashboard", "review"])
     ap.add_argument("-c", "--config", default="config.toml" if os.path.exists("config.toml") else None)
     ap.add_argument("--live", action="store_true", help="send real orders (also needs KBOT_CONFIRM_LIVE=yes)")
     ap.add_argument("--hours", type=float, default=2.0)
@@ -214,6 +215,8 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--once", action="store_true", help="dashboard: print one frame and exit")
     ap.add_argument("--svg", help="dashboard: with --once, also save the frame as an SVG image")
+    ap.add_argument("--all", action="store_true", help="review: list every bet, not just the latest 25")
+    ap.add_argument("--csv", help="review: also save every bet to this spreadsheet file")
     a = ap.parse_args()
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -234,6 +237,9 @@ def main():
     elif a.cmd == "dashboard":
         from .dashboard import run as run_dashboard
         run_dashboard(cfg, once=a.once, svg=a.svg)
+    elif a.cmd == "review":
+        from .review import review
+        review(cfg, show_all=a.all, csv_path=a.csv)
     elif a.cmd == "sim":
         from .sim import run_sim
         if not a.verbose:

@@ -83,6 +83,21 @@ signals with what the bot decided, and paper bets. It refreshes every 2 s. Press
 keeps running. Make the window at least 130 characters wide for the two-column layout (it falls back to one
 column on narrower windows). `python -m kbot dashboard --once` prints a single frame.
 
+## Reviewing past bets
+
+```bash
+python -m kbot review                 # latest 25 bets plus the analysis
+python -m kbot review --all           # every bet
+python -m kbot review --csv bets.csv  # also save every bet as a spreadsheet
+```
+
+Each bet is graded by its result and by what Kalshi's price did 30 s after the bet:
+**good** (won, price moved our way), **lucky** (won, price moved against us), **unlucky** (lost, but the
+price moved our way: a fair bet that missed), **bad** (lost, and the price moved against us right away: the
+bot misjudged it). The review then breaks results down by window, signal type, edge, price paid, BTC move
+size, time left, staleness and side, and shows whether signals skipped for too little edge would have paid.
+Groups with fewer than 10 settled bets are marked as too small to judge.
+
 ## Reading the scoreboard
 
 | column | meaning |
